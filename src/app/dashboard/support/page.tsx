@@ -3,6 +3,10 @@
 import { useState, useEffect } from "react";
 import { FiMessageSquare, FiPlus, FiChevronRight, FiCheck, FiClock, FiX } from "react-icons/fi";
 import { supabase } from "@/lib/supabase";
+import dynamic from "next/dynamic";
+
+// Import Modal with SSR disabled to avoid hydration issues
+const Modal = dynamic(() => import("@/components/ui/Modal"), { ssr: false });
 
 type Ticket = {
   id: string;
@@ -338,20 +342,12 @@ export default function SupportPage() {
       </div>
       
       {/* New Ticket Modal */}
-      {showNewTicketModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Create New Support Ticket
-              </h2>
-              <button
-                onClick={() => setShowNewTicketModal(false)}
-                className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-              >
-                <FiX className="h-6 w-6" />
-              </button>
-            </div>
+      <Modal
+        isOpen={showNewTicketModal}
+        onClose={() => setShowNewTicketModal(false)}
+        title="Create New Support Ticket"
+        size="md"
+      >
             
             <div className="mb-4">
               <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
@@ -396,25 +392,16 @@ export default function SupportPage() {
                 {submitting ? 'Submitting...' : 'Submit Ticket'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+          </Modal>
       
       {/* Ticket Details Modal */}
-      {showTicketDetailsModal && selectedTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Ticket: {selectedTicket.subject}
-              </h2>
-              <button
-                onClick={() => setShowTicketDetailsModal(false)}
-                className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-              >
-                <FiX className="h-6 w-6" />
-              </button>
-            </div>
+      <Modal
+        isOpen={showTicketDetailsModal && selectedTicket !== null}
+        onClose={() => setShowTicketDetailsModal(false)}
+        title={selectedTicket ? `Ticket: ${selectedTicket.subject}` : 'Ticket Details'}
+        size="lg"
+      >
+            <div>
             
             <div className="mb-4 flex items-center justify-between">
               <div className="flex items-center">
@@ -512,9 +499,7 @@ export default function SupportPage() {
                 </button>
               )}
             </div>
-          </div>
-        </div>
-      )}
+          </Modal>
     </div>
   );
 }

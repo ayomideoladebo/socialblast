@@ -1,8 +1,12 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { FiGift, FiPlus, FiShoppingCart, FiFilter, FiRefreshCw } from "react-icons/fi";
+import { FiGift, FiPlus, FiShoppingCart, FiDollarSign, FiCreditCard, FiX } from "react-icons/fi";
 import { supabase } from "@/lib/supabase";
+import dynamic from "next/dynamic";
+
+// Import Modal with SSR disabled to avoid hydration issues
+const Modal = dynamic(() => import("@/components/ui/Modal"), { ssr: false });
 
 type GiftCard = {
   id: string;
@@ -328,22 +332,12 @@ export default function GiftCardsPage() {
       </div>
       
       {/* Sell Gift Card Modal */}
-      {showSellModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="max-h-[90vh] w-full max-w-md overflow-auto rounded-lg bg-white p-6 shadow-xl dark:bg-gray-800">
-            <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                Sell Gift Card
-              </h2>
-              <button
-                onClick={() => setShowSellModal(false)}
-                className="rounded-full p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-              >
-                <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
+      <Modal
+        isOpen={showSellModal}
+        onClose={() => setShowSellModal(false)}
+        title="Sell Gift Card"
+        size="md"
+      >
             
             <form onSubmit={handleSellCard}>
               <div className="mb-4">
@@ -456,9 +450,7 @@ export default function GiftCardsPage() {
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+          </Modal>
     </div>
   );
 }
