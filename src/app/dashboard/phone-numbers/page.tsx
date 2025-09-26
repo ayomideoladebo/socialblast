@@ -4,17 +4,14 @@ import { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { FiSearch, FiRefreshCw, FiCopy, FiShoppingCart, FiMessageSquare, FiX, FiFilter, FiChevronDown, FiChevronUp } from "react-icons/fi";
 import { toast } from "react-hot-toast";
+import * as FiveSimAPI from "@/lib/5sim";
 
 // Import Modal with SSR disabled to avoid hydration issues
 const Modal = dynamic(() => import("@/components/ui/Modal"), { ssr: false });
 
-type PhoneNumber = {
-  id: string;
-  country: string;
-  number: string;
-  service: string;
-  price: number;
-  status: "available" | "sold";
+// Using the PhoneNumber type from 5Sim API with some additional fields
+type PhoneNumber = FiveSimAPI.PhoneNumber & {
+  status: "available" | "purchased";
 };
 
 type SMSMessage = {
@@ -34,106 +31,101 @@ export default function PhoneNumbersPage() {
   const [countries, setCountries] = useState<string[]>([]);
   const [services, setServices] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [purchasing, setPurchasing] = useState(false);
+  const [showPurchaseModal, setShowPurchaseModal] = useState(false);
   
   // SMS Messages
   const [selectedNumber, setSelectedNumber] = useState<PhoneNumber | null>(null);
   const [messages, setMessages] = useState<SMSMessage[]>([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [showMessagesModal, setShowMessagesModal] = useState(false);
-  
-  // Import our new Modal component
-  const Modal = dynamic(() => import("@/components/ui/Modal"), { ssr: false });
 
   useEffect(() => {
     fetchPhoneNumbers();
+    fetchCountries();
   }, []);
+
+  useEffect(() => {
+    if (selectedCountry) {
+      fetchServices(selectedCountry);
+    }
+  }, [selectedCountry]);
 
   const fetchPhoneNumbers = async () => {
     try {
       setLoading(true);
       
-      // Mock data for demonstration
-      const mockData: PhoneNumber[] = [
-        {
-          id: "1",
-          country: "United States",
-          number: "+14155552671",
-          service: "WhatsApp",
-          price: 0.75,
-          status: "available"
-        },
-        {
-          id: "2",
-          country: "United Kingdom",
-          number: "+447700900123",
-          service: "Telegram",
-          price: 0.85,
-          status: "available"
-        },
-        {
-          id: "3",
-          country: "Canada",
-          number: "+16135550165",
-          service: "Facebook",
-          price: 0.70,
-          status: "available"
-        },
-        {
-          id: "4",
-          country: "Germany",
-          number: "+4915123456789",
-          service: "Google",
-          price: 0.90,
-          status: "available"
-        },
-        {
-          id: "5",
-          country: "Nigeria",
-          number: "+2348012345678",
-          service: "Telegram",
-          price: 0.65,
-          status: "available"
-        }
-      ];
+      // Get purchased numbers from 5Sim API
+      const purchasedNumbers = await FiveSimAPI.getPurchasedNumbers();
       
-      setPhoneNumbers(mockData);
+      // Map to our PhoneNumber type
+      const numbers = purchasedNumbers.map(number => ({
+        ...number,
+        status: "purchased" as const
+      }));
       
-      // Extract unique countries and services
-      const uniqueCountries = [...new Set(mockData.map(num => num.country))];
-      const uniqueServices = [...new Set(mockData.map(num => num.service))];
-      
-      setCountries(uniqueCountries);
-      setServices(uniqueServices);
+      setPhoneNumbers(numbers);
+      setLoading(false);
     } catch (error) {
-      console.error('Error fetching phone numbers:', error);
-    } finally {
+      console.error("Error fetching phone numbers:", error);
+      toast.error("Failed to fetch phone numbers");
       setLoading(false);
     }
   };
 
-  const fetchMessages = async (phoneNumberId: string) => {
+  // Purchase a new phone number
+  const purchaseNumber = async () => {
+    if (!selectedCountry || !selectedService) {
+      toast.error("Please select a country and service");
+      return;
+    }
+
+    try {
+      setPurchasing(true);
+      // Use any operator for now
+      const result = await FiveSimAPI.purchaseNumber(selectedCountry, "any", selectedService);
+      
+      // Add the new number to the list
+      setPhoneNumbers(prev => [
+        {
+          ...result,
+          status: "purchased" as const
+        },
+        ...prev
+      ]);
+      
+      toast.success(`Successfully purchased number: ${result.phone}`);
+      setShowPurchaseModal(false);
+    } catch (error) {
+      console.error("Error purchasing number:", error);
+      toast.error("Failed to purchase number");
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  // Fetch SMS messages for a phone number
+  const fetchMessages = async (number: PhoneNumber) => {
     try {
       setLoadingMessages(true);
-      // Mock SMS messages
-      const mockMessages: SMSMessage[] = [
-        {
-          id: "1",
-          phone_number_id: phoneNumberId,
-          sender: "WhatsApp",
-          message: "Your WhatsApp verification code: 123456",
-          received_at: new Date(Date.now() - 5 * 60000).toISOString()
-        },
-        {
-          id: "2",
-          phone_number_id: phoneNumberId,
-          sender: "Google",
-          message: "Your Google verification code is 789012",
-          received_at: new Date(Date.now() - 10 * 60000).toISOString()
-        }
-      ];
-      setMessages(mockMessages);
+      setSelectedNumber(number);
+      setShowMessagesModal(true);
+      
+      const smsMessages = await FiveSimAPI.getSMSMessages(number.id);
+      
+      // Map to our SMSMessage type
+      const messages: SMSMessage[] = smsMessages.map(sms => ({
+        id: sms.id,
+        phone_number_id: number.id,
+        sender: sms.sender,
+        message: sms.text,
+        received_at: sms.date
+      }));
+      
+      setMessages(messages);
     } catch (error) {
-      console.error('Error fetching messages:', error);
+      console.error("Error fetching messages:", error);
+      toast.error("Failed to fetch messages");
     } finally {
       setLoadingMessages(false);
     }
@@ -141,9 +133,31 @@ export default function PhoneNumbersPage() {
 
   const handleViewMessages = (phoneNumber: PhoneNumber) => {
     setSelectedNumber(phoneNumber);
-    fetchMessages(phoneNumber.id);
+    fetchMessages(phoneNumber);
     setShowMessagesModal(true);
   };
+
+  const fetchCountries = async () => {
+    try {
+      const countries = await FiveSimAPI.getCountries();
+      setCountries(countries);
+    } catch (error) {
+      console.error("Error fetching countries:", error);
+      toast.error("Failed to fetch countries");
+    }
+  };
+
+  const fetchServices = async (country: string) => {
+    try {
+      const services = await FiveSimAPI.getServices(country);
+      setServices(services);
+    } catch (error) {
+      console.error("Error fetching services:", error);
+      toast.error("Failed to fetch services");
+    }
+  };
+
+
 
   const handlePurchase = async (phoneNumber: PhoneNumber) => {
     alert(`Purchased ${phoneNumber.number} for $${phoneNumber.price}`);
@@ -174,12 +188,12 @@ export default function PhoneNumbersPage() {
 
   const filteredNumbers = phoneNumbers.filter(number => {
     const matchesSearch = searchTerm === "" || 
-      number.number.includes(searchTerm) || 
+      number.phone.includes(searchTerm) || 
       number.country.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      number.service.toLowerCase().includes(searchTerm.toLowerCase());
+      number.product.toLowerCase().includes(searchTerm.toLowerCase());
     
     const matchesCountry = selectedCountry === null || number.country === selectedCountry;
-    const matchesService = selectedService === null || number.service === selectedService;
+    const matchesService = selectedService === null || number.product === selectedService;
     
     return matchesSearch && matchesCountry && matchesService;
   });
@@ -205,6 +219,14 @@ export default function PhoneNumbersPage() {
             >
               <FiRefreshCw className="mr-2 h-4 w-4" />
               Refresh
+            </button>
+            
+            <button
+              onClick={() => setShowPurchaseModal(true)}
+              className="inline-flex items-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 transition-colors"
+            >
+              <FiShoppingCart className="mr-2 h-4 w-4" />
+              Buy Number
             </button>
           </div>
         </div>
@@ -321,9 +343,9 @@ export default function PhoneNumbersPage() {
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-300">
                       <div className="flex items-center">
-                        {phoneNumber.number}
+                        {phoneNumber.phone}
                         <button
-                          onClick={() => copyToClipboard(phoneNumber.number)}
+                          onClick={() => copyToClipboard(phoneNumber.phone)}
                           className="ml-2 text-gray-400 hover:text-gray-500 dark:text-gray-500 dark:hover:text-gray-400 transition-colors"
                           title="Copy to clipboard"
                         >
@@ -332,7 +354,7 @@ export default function PhoneNumbersPage() {
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-300">
-                      {phoneNumber.service}
+                      {phoneNumber.product}
                     </td>
                     <td className="whitespace-nowrap px-6 py-4 text-sm text-gray-500 dark:text-gray-300">
                       <span className="font-medium text-gray-900 dark:text-white">${phoneNumber.price.toFixed(2)}</span>
@@ -363,60 +385,125 @@ export default function PhoneNumbersPage() {
         )}
       </div>
       
-      {/* SMS Messages Modal */}
-      <Modal 
-        isOpen={showMessagesModal} 
-        onClose={() => setShowMessagesModal(false)}
-        title={selectedNumber ? `SMS Messages for ${selectedNumber.number} (${selectedNumber.country})` : 'SMS Messages'}
-        size="lg"
+      {/* Purchase Modal */}
+      <Modal
+        isOpen={showPurchaseModal}
+        onClose={() => setShowPurchaseModal(false)}
+        title="Purchase New Phone Number"
+        size="md"
       >
-        <div className="max-h-96 overflow-y-auto">
-          {loadingMessages ? (
-            <div className="flex justify-center py-8">
-              <FiRefreshCw className="w-8 h-8 animate-spin text-indigo-600" />
-            </div>
-          ) : messages.length > 0 ? (
-            <div className="space-y-4">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className="p-3 bg-gray-50 rounded-lg dark:bg-gray-700"
-                >
-                  <div className="flex justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-900 dark:text-white">
-                      {message.sender}
-                    </span>
-                    <span className="text-xs text-gray-500 dark:text-gray-400">
-                      {new Date(message.received_at).toLocaleString()}
-                    </span>
-                  </div>
-                  <p className="text-gray-700 dark:text-gray-300">{message.message}</p>
-                  <button
-                    onClick={() => copyToClipboard(message.message)}
-                    className="mt-2 text-xs text-indigo-600 hover:text-indigo-800 flex items-center dark:text-indigo-400 dark:hover:text-indigo-300"
-                  >
-                    <FiCopy className="w-3 h-3 mr-1" /> Copy message
-                  </button>
-                </div>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Select Country
+            </label>
+            <select
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+              value={selectedCountry || ""}
+              onChange={(e) => setSelectedCountry(e.target.value || null)}
+            >
+              <option value="">Select a country</option>
+              {countries.map((country) => (
+                <option key={country} value={country}>
+                  {country}
+                </option>
               ))}
-            </div>
-          ) : (
-            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
-              No messages found for this number.
-            </div>
-          )}
-        </div>
-        <div className="mt-4 flex justify-end space-x-2">
-          <button
-            className="inline-flex items-center rounded-md border border-transparent bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 transition-colors"
-            onClick={() => selectedNumber && fetchMessages(selectedNumber.id)}
-          >
-            <FiRefreshCw className="mr-2 h-4 w-4" />
-            Refresh Messages
-          </button>
+            </select>
+          </div>
+      
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              Select Service
+            </label>
+            <select
+              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 dark:bg-gray-700 dark:border-gray-600"
+              value={selectedService || ""}
+              onChange={(e) => setSelectedService(e.target.value || null)}
+              disabled={!selectedCountry}
+            >
+              <option value="">Select a service</option>
+              {services.map((service) => (
+                <option key={service} value={service}>
+                  {service}
+                </option>
+              ))}
+            </select>
+          </div>
+      
+          <div className="flex justify-end pt-4">
+            <button
+              type="button"
+              className="mr-3 px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600"
+              onClick={() => setShowPurchaseModal(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              onClick={purchaseNumber}
+              disabled={!selectedCountry || !selectedService || purchasing}
+            >
+              {purchasing ? (
+                <>
+                  <FiRefreshCw className="inline-block mr-2 animate-spin" />
+                  Purchasing...
+                </>
+              ) : (
+                "Purchase Number"
+              )}
+            </button>
+          </div>
         </div>
       </Modal>
       
+      {/* SMS Messages Modal */}
+      <Modal
+        isOpen={showMessagesModal}
+        onClose={() => setShowMessagesModal(false)}
+        title={`SMS Messages for ${selectedNumber?.phone || ""}`}
+        size="lg"
+      >
+        <div className="space-y-4">
+          {loadingMessages ? (
+            <div className="flex justify-center py-8">
+              <FiRefreshCw className="animate-spin mr-2" />
+              Loading messages...
+            </div>
+          ) : messages.length === 0 ? (
+            <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+              No messages received yet
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {messages.map((message) => (
+                <div key={message.id} className="p-4 border rounded-lg dark:border-gray-700">
+                  <div className="flex justify-between mb-2">
+                    <span className="text-sm font-medium text-gray-500 dark:text-gray-400">
+                      From: {message.sender}
+                    </span>
+                    <span className="text-sm text-gray-500 dark:text-gray-400">
+                      {new Date(message.received_at).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-gray-800 dark:text-gray-200">{message.message}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end pt-4">
+            <button
+              type="button"
+              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-500 dark:hover:bg-indigo-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              onClick={() => selectedNumber && fetchMessages(selectedNumber)}
+              disabled={loadingMessages || !selectedNumber}
+            >
+              <FiRefreshCw className={`inline-block mr-2 ${loadingMessages ? "animate-spin" : ""}`} />
+              Refresh Messages
+            </button>
+          </div>
+        </div>
+      </Modal>
       {/* CSS for toast notification */}
       <style jsx global>{`
         @keyframes fadeInOut {
